@@ -68,6 +68,8 @@ if __name__ == "__main__":
     tot_votes = 0
     tot_seats = 0
 
+    REPS = int(args.reps)
+    
     for p,(v,s) in data.items():
         tot_votes += v
         tot_seats += s
@@ -99,7 +101,7 @@ if __name__ == "__main__":
        
             # Estimate sample size via simulation
             sample_size =  TestNonnegMean.initial_sample_size(risk_fn, \
-                tot_ballots, m, args.erate, alpha=0.05, t=1/2, reps=args.reps,\
+                tot_ballots, m, args.erate, alpha=0.05, t=1/2, reps=REPS,\
                 bias_up=True, quantile=0.5, seed=args.seed)
             
             max_sample = max(sample_size, max_sample)
