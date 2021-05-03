@@ -8,7 +8,10 @@ if __name__ == "__main__":
         with open(path, 'r') as f:
             lines = f.readlines()
 
-            # last line has summary
-            toks = lines[-1].split()
+            # last two lines have summaries
+            l = len(lines)
+            toks1 = lines[l-2].split()
+            toks2 = lines[l-1].split()
 
-            print("{},{}".format(filename, toks[2]))
+            print("Level 1: {},{}".format(filename, toks1[4]))
+            print("Level 2: {},{}".format(filename, toks2[4]))

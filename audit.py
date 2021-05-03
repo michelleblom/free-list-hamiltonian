@@ -136,11 +136,48 @@ if __name__ == "__main__":
 
     TBTS = tot_ballots*tot_seats
 
-    risk_fn = lambda x: TestNonnegMean.kaplan_martingale(x, N=tot_ballots)[0]
+    level1_max_sample = 0
+
+    # Check that party deserved all but their last seat
+    hquota = tot_votes/tot_seats
+    for p1 in data:
+        v1,a1 = data[p1]
+
+        if a1 > 1:
+            threshold = (hquota*(a1-1))/tot_votes
+
+            # supermajority assertion: party p1 achieved 
+            # more than 'threshold' of the vote.
+            share = 1.0/(2*threshold)
+            amean = (v1*share + 0.5*(tot_votes - v1))/tot_votes
+
+            m = 2*amean - 1
+
+            # Estimate sample size via simulation
+            sample_size = np.inf
+            if args.rfunc == "kaplan_kolmogorov":
+                prng = np.random.RandomState(seed) 
+                sample_size =  sample_size_kaplan_kolgoromov(m, prng, \
+                    tot_ballots, erate, rlimit, t=t, g=g, quantile=0.5,\
+                    reps=REPS)
+            else:
+                # Use kaplan martingale
+                risk_fn = lambda x: TestNonnegMean.kaplan_martingale(x, \
+                    N=tot_ballots)[0]
+                
+                sample_size =  TestNonnegMean.initial_sample_size(risk_fn, \
+                    tot_ballots, m, erate, alpha=rlimit, t=t, reps=REPS,\
+                    bias_up=True, quantile=0.5, seed=seed)
+            
+            level1_max_sample = max(sample_size, level1_max_sample)
+            
+            print("{},{},{},{}".format(p1, v1/tot_votes,\
+                m, sample_size))
+
 
     # for each pair of parties, in both directions, compute
     # margin for pairwise c-diff assertion
-    max_sample = 0
+    level2_max_sample = 0
     for p1 in data:
         for p2 in data:
             if p1 == p2:
@@ -173,7 +210,7 @@ if __name__ == "__main__":
                     tot_ballots, m, erate, alpha=rlimit, t=t, reps=REPS,\
                     bias_up=True, quantile=0.5, seed=seed)
             
-            max_sample = max(sample_size, max_sample)
+            level2_max_sample = max(sample_size, level2_max_sample)
 
             # Print out: Party name 1, Party name 2, proportion of votes
             # in Party 1's tally, proportion of votes in Party 2's tally,
@@ -182,4 +219,5 @@ if __name__ == "__main__":
             print("{},{},{},{},{},{},{}".format(p1, p2, v1/tot_votes,\
                 v2/tot_votes, d, m, sample_size))
 
-    print("Overal ASN: {} ballots".format(max_sample))
+    print("Level 1, Overal ASN: {} ballots".format(level1_max_sample))
+    print("Level 2, Overal ASN: {} ballots".format(level2_max_sample))
