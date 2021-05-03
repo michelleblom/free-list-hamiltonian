@@ -1,6 +1,7 @@
 import argparse
 import os
 import statistics
+import math
 
 import numpy as np
 
@@ -81,6 +82,33 @@ def sample_size_kaplan_kolgoromov(margin, prng, N, error_rate, rlimit, t=1/2, \
     return np.quantile(samples, quantile)
 
 
+def supermajority_sample_size(hquota, v_div_q, tot_votes, tot_ballots, \
+    erate, rlimit, t, g, REPS, seed, rfunc):
+
+    threshold = (hquota*(v_div_q))/tot_votes
+
+    # supermajority assertion: party p1 achieved 
+    # more than 'threshold' of the vote.
+    share = 1.0/(2*threshold)
+    amean = (v1*share + 0.5*(tot_votes - v1))/tot_votes
+
+    m = 2*amean - 1
+
+    # Estimate sample size via simulation
+    sample_size = np.inf
+    if rfunc == "kaplan_kolmogorov":
+        prng = np.random.RandomState(seed) 
+        sample_size =  sample_size_kaplan_kolgoromov(m, prng, tot_ballots, \
+            erate, rlimit, t=t, g=g, quantile=0.5, reps=REPS)
+    else:
+        # Use kaplan martingale
+        risk_fn=lambda x: TestNonnegMean.kaplan_martingale(x,N=tot_ballots)[0]
+                
+        sample_size =  TestNonnegMean.initial_sample_size(risk_fn, \
+            tot_ballots, m, erate, alpha=rlimit, t=t, reps=REPS,\
+            bias_up=True, quantile=0.5, seed=seed)
+
+    return sample_size, m
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -136,6 +164,7 @@ if __name__ == "__main__":
 
     TBTS = tot_ballots*tot_seats
 
+    level0_max_sample = 0
     level1_max_sample = 0
 
     # Check that party deserved all but their last seat
@@ -143,36 +172,26 @@ if __name__ == "__main__":
     for p1 in data:
         v1,a1 = data[p1]
 
+        if a1 > 0:
+            v_div_q = math.floor(v1 / hquota) 
+            
+            if v_div_q > 0:
+                sample_size,m = supermajority_sample_size(hquota, v_div_q, \
+                    tot_votes, tot_ballots, erate, rlimit, t, g, REPS, seed, \
+                    args.rfunc)
+            
+                print("Level 0,{},{},{},{}".format(p1, v_div_q, m,sample_size))
+
+                level0_max_sample = max(sample_size, level0_max_sample)
+
         if a1 > 1:
-            threshold = (hquota*(a1-1))/tot_votes
-
-            # supermajority assertion: party p1 achieved 
-            # more than 'threshold' of the vote.
-            share = 1.0/(2*threshold)
-            amean = (v1*share + 0.5*(tot_votes - v1))/tot_votes
-
-            m = 2*amean - 1
-
-            # Estimate sample size via simulation
-            sample_size = np.inf
-            if args.rfunc == "kaplan_kolmogorov":
-                prng = np.random.RandomState(seed) 
-                sample_size =  sample_size_kaplan_kolgoromov(m, prng, \
-                    tot_ballots, erate, rlimit, t=t, g=g, quantile=0.5,\
-                    reps=REPS)
-            else:
-                # Use kaplan martingale
-                risk_fn = lambda x: TestNonnegMean.kaplan_martingale(x, \
-                    N=tot_ballots)[0]
-                
-                sample_size =  TestNonnegMean.initial_sample_size(risk_fn, \
-                    tot_ballots, m, erate, alpha=rlimit, t=t, reps=REPS,\
-                    bias_up=True, quantile=0.5, seed=seed)
+            sample_size,m = supermajority_sample_size(hquota, a1-1, \
+                tot_votes, tot_ballots, erate, rlimit, t, g, REPS, seed, \
+                args.rfunc)
             
             level1_max_sample = max(sample_size, level1_max_sample)
             
-            print("{},{},{},{}".format(p1, v1/tot_votes,\
-                m, sample_size))
+            print("Level 1,{},{},{},{}".format(p1, a1-1, m, sample_size))
 
 
     # for each pair of parties, in both directions, compute
@@ -216,8 +235,9 @@ if __name__ == "__main__":
             # in Party 1's tally, proportion of votes in Party 2's tally,
             # value of 'd', margin, and estimate of initial sample required
             # to audit the assertion.
-            print("{},{},{},{},{},{},{}".format(p1, p2, v1/tot_votes,\
+            print("Level 2,{},{},{},{},{},{},{}".format(p1, p2, v1/tot_votes,\
                 v2/tot_votes, d, m, sample_size))
 
+    print("Level 0, Overal ASN: {} ballots".format(level0_max_sample))
     print("Level 1, Overal ASN: {} ballots".format(level1_max_sample))
     print("Level 2, Overal ASN: {} ballots".format(level2_max_sample))
