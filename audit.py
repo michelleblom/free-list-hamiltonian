@@ -1,7 +1,11 @@
 import argparse
 import os
+import statistics
 
-# Importing code from Philip's SHANGRLA repository
+import numpy as np
+
+# Importing code from Philip's SHANGRLA repository:
+# https://github.com/pbstark/SHANGRLA/tree/main/Code
 from assertion_audit_utils import TestNonnegMean
 
 # Read summarised election data from file.
@@ -38,6 +42,46 @@ def read_data(dfile):
 
     return data, tot_ballots
 
+# This function extracts code from audit_assertion_utils.py in the 
+# SHANGRLA repository.
+def sample_size_kaplan_kolgoromov(margin, prng, N, error_rate, rlimit, t=1/2, \
+    g=0.1, quantile=0.5, reps=20):
+
+    clean = 1.0/(2 - margin)
+    one_vote_over = 0.5/(2-margin)
+
+    samples = [0]*reps
+
+    for i in range(reps):
+        pop = clean*np.ones(N)
+        inx = (prng.random(size=N) <= error_rate)  # randomly allocate errors
+        pop[inx] = one_vote_over
+
+        sample_total = 0
+        mart = (pop[0]+g)/(t+g) if t > 0 else  1
+        p = min(1.0/mart,1.0)
+        j = 1
+
+        while p > rlimit and j < N:
+            mart *= (pop[j]+g)*(1-j/N)/(t+g - (1/N)*sample_total)
+    
+            if mart < 0:
+                break
+            else:
+                sample_total += pop[j] + g
+
+            p = min(1.0/mart,1.0)
+            j += 1;
+
+        if p <= rlimit:
+            samples[i] = j
+        else:
+            return np.inf 
+
+    return np.quantile(samples, quantile)
+
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     # Input: data file
@@ -49,6 +93,16 @@ if __name__ == "__main__":
 
     # Input: risk limit (default is 5%)
     parser.add_argument('-r', action='store', dest='rlimit', default=0.05)
+    
+    # Input: parameter for some risk functions
+    parser.add_argument('-g', action='store', dest='g', default=0.1)
+
+    # Input: parameter for some risk functions
+    parser.add_argument('-t', action='store', dest='t', default=1/2)
+    
+    # Risk function to use for estimating sample size
+    parser.add_argument('-rf', action='store', dest='rfunc', \
+        default="kaplan_kolmogorov")
 
     # Input: number of repetitions to perform in simulation to determine
     # an initial sample size estimation -- the quantile of the sample
@@ -57,7 +111,7 @@ if __name__ == "__main__":
 
     # Input: seed (default is 93686630803205229070)
     parser.add_argument('-s', action='store', dest='seed', \
-        default=93686630803205229070)
+        default=9368663)
 
     args = parser.parse_args()
 
@@ -68,7 +122,13 @@ if __name__ == "__main__":
     tot_votes = 0
     tot_seats = 0
 
+    seed = int(args.seed)
+    erate = float(args.erate)
+    rlimit = float(args.rlimit)
+
     REPS = int(args.reps)
+    t = float(args.t)
+    g = float(args.g)
     
     for p,(v,s) in data.items():
         tot_votes += v
@@ -76,8 +136,6 @@ if __name__ == "__main__":
 
     TBTS = tot_ballots*tot_seats
 
-    # Kaplan Martingale risk function is used
-    risk_function = "kaplan_martingale"
     risk_fn = lambda x: TestNonnegMean.kaplan_martingale(x, N=tot_ballots)[0]
 
     # for each pair of parties, in both directions, compute
@@ -100,9 +158,20 @@ if __name__ == "__main__":
             m = 2*(amean) - 1
        
             # Estimate sample size via simulation
-            sample_size =  TestNonnegMean.initial_sample_size(risk_fn, \
-                tot_ballots, m, args.erate, alpha=0.05, t=1/2, reps=REPS,\
-                bias_up=True, quantile=0.5, seed=args.seed)
+            sample_size = np.inf
+            if args.rfunc == "kaplan_kolmogorov":
+                prng = np.random.RandomState(seed) 
+                sample_size =  sample_size_kaplan_kolgoromov(m, prng, \
+                    tot_ballots, erate, rlimit, t=t, g=g, quantile=0.5,\
+                    reps=REPS)
+            else:
+                # Use kaplan martingale
+                risk_fn = lambda x: TestNonnegMean.kaplan_martingale(x, \
+                    N=tot_ballots)[0]
+                
+                sample_size =  TestNonnegMean.initial_sample_size(risk_fn, \
+                    tot_ballots, m, erate, alpha=rlimit, t=t, reps=REPS,\
+                    bias_up=True, quantile=0.5, seed=seed)
             
             max_sample = max(sample_size, max_sample)
 
