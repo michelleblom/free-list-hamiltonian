@@ -25,6 +25,7 @@ from assertion_audit_utils import TestNonnegMean
 def read_data(dfile):
     data = {}
     tot_ballots = 0
+    tot_voters = 0
     with open(dfile, 'r') as f:
         lines = f.readlines()
 
@@ -32,6 +33,7 @@ def read_data(dfile):
         toks2 = lines[1].split(',')
         
         tot_ballots = int(toks1[1]) - int(toks2[1])
+        tot_voters = int(toks1[1])
 
         # Skip first three lines: party votes & seats 
         # attributions start on the 4th line.
@@ -41,7 +43,7 @@ def read_data(dfile):
 
             data[toks[0]] = (int(toks[1]), int(toks[2]))
 
-    return data, tot_ballots
+    return data, tot_ballots, tot_voters
 
 # This function extracts code from audit_assertion_utils.py in the 
 # SHANGRLA repository.
@@ -144,7 +146,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # data is a mapping between party name and a (votes, seats) tuple
-    data, tot_ballots = read_data(args.data)
+    data, tot_ballots, tot_voters = read_data(args.data)
 
     # compute total number of votes and seats
     tot_votes = 0
@@ -162,6 +164,9 @@ if __name__ == "__main__":
         tot_votes += v
         tot_seats += s
 
+    print("{} seats, {} voters, {} parties, {} valid ballots".format(tot_seats,\
+        tot_voters, len(data), tot_ballots)) 
+
     TBTS = tot_ballots*tot_seats
 
     level0_max_sample = 0
@@ -172,6 +177,15 @@ if __name__ == "__main__":
     for p1 in data:
         v1,a1 = data[p1]
 
+        if a1 > 1:
+            sample_size,m = supermajority_sample_size(hquota, a1-1, \
+                tot_votes, tot_ballots, erate, rlimit, t, g, REPS, seed, \
+                args.rfunc)
+            
+            level0_max_sample = max(sample_size, level0_max_sample)
+            
+            print("Level 0,{},{},{},{}".format(p1, a1-1, m, sample_size))
+
         if a1 > 0:
             v_div_q = math.floor(v1 / hquota) 
             
@@ -180,23 +194,15 @@ if __name__ == "__main__":
                     tot_votes, tot_ballots, erate, rlimit, t, g, REPS, seed, \
                     args.rfunc)
             
-                print("Level 0,{},{},{},{}".format(p1, v_div_q, m,sample_size))
+                print("Level 1,{},{},{},{}".format(p1, v_div_q, m,sample_size))
 
-                level0_max_sample = max(sample_size, level0_max_sample)
-
-        if a1 > 1:
-            sample_size,m = supermajority_sample_size(hquota, a1-1, \
-                tot_votes, tot_ballots, erate, rlimit, t, g, REPS, seed, \
-                args.rfunc)
-            
-            level1_max_sample = max(sample_size, level1_max_sample)
-            
-            print("Level 1,{},{},{},{}".format(p1, a1-1, m, sample_size))
+                level1_max_sample = max(sample_size, level1_max_sample)
 
 
     # for each pair of parties, in both directions, compute
     # margin for pairwise c-diff assertion
     level2_max_sample = 0
+    num_level2 = 0
     for p1 in data:
         for p2 in data:
             if p1 == p2:
@@ -238,6 +244,9 @@ if __name__ == "__main__":
             print("Level 2,{},{},{},{},{},{},{}".format(p1, p2, v1/tot_votes,\
                 v2/tot_votes, d, m, sample_size))
 
+            num_level2 += 1
+
     print("Level 0, Overal ASN: {} ballots".format(level0_max_sample))
     print("Level 1, Overal ASN: {} ballots".format(level1_max_sample))
-    print("Level 2, Overal ASN: {} ballots".format(level2_max_sample))
+    print("Level 2, Overal ASN: {} ballots, {} assertions".format(\
+        level2_max_sample, num_level2))
