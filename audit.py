@@ -48,10 +48,10 @@ def read_data(dfile):
 # This function extracts code from audit_assertion_utils.py in the 
 # SHANGRLA repository.
 def sample_size_kaplan_kolgoromov(margin, prng, N, error_rate, rlimit, t=1/2, \
-    g=0.1, quantile=0.5, reps=20):
+    g=0.1, upper_bound=1, quantile=0.5, reps=20):
 
-    clean = 1.0/(2 - margin)
-    one_vote_over = 0.5/(2-margin)
+    clean = 1.0/(2 - margin/upper_bound)
+    one_vote_over = 0.5/(2-margin/upper_bound)
 
     samples = [0]*reps
 
@@ -73,7 +73,9 @@ def sample_size_kaplan_kolgoromov(margin, prng, N, error_rate, rlimit, t=1/2, \
             else:
                 sample_total += pop[j] + g
 
-            p = min(1.0/mart,1.0)
+            
+            p = min(1.0/mart,1.0) if mart > 1.0 else 1.0
+
             j += 1;
 
         if p <= rlimit:
@@ -84,24 +86,28 @@ def sample_size_kaplan_kolgoromov(margin, prng, N, error_rate, rlimit, t=1/2, \
     return np.quantile(samples, quantile)
 
 
-def supermajority_sample_size(hquota, v_div_q, tot_votes, tot_ballots, \
-    erate, rlimit, t, g, REPS, seed, rfunc):
+def supermajority_sample_size(hquota, seats, tot_votes, tot_ballots, \
+    tot_voters, erate, rlimit, t, g, REPS, seed, rfunc):
 
-    threshold = (hquota*(v_div_q))/tot_votes
+    threshold = (hquota*seats)/tot_votes
 
     # supermajority assertion: party p1 achieved 
     # more than 'threshold' of the vote.
     share = 1.0/(2*threshold)
-    amean = (v1*share + 0.5*(tot_votes - v1))/tot_votes
+    
+    amean = (1.0/tot_voters)*(v1*share) - \
+        tot_votes/(2*tot_voters) + 0.5
 
     m = 2*amean - 1
+
+    #m = min(m, 4)
 
     # Estimate sample size via simulation
     sample_size = np.inf
     if rfunc == "kaplan_kolmogorov":
         prng = np.random.RandomState(seed) 
         sample_size =  sample_size_kaplan_kolgoromov(m, prng, tot_ballots, \
-            erate, rlimit, t=t, g=g, quantile=0.5, reps=REPS)
+            erate, rlimit, t=t, g=g, upper_bound=share,quantile=0.5, reps=REPS)
     else:
         # Use kaplan martingale
         risk_fn=lambda x: TestNonnegMean.kaplan_martingale(x,N=tot_ballots)[0]
@@ -110,7 +116,7 @@ def supermajority_sample_size(hquota, v_div_q, tot_votes, tot_ballots, \
             tot_ballots, m, erate, alpha=rlimit, t=t, reps=REPS,\
             bias_up=True, quantile=0.5, seed=seed)
 
-    return sample_size, m
+    return sample_size, m, threshold, amean
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -164,10 +170,12 @@ if __name__ == "__main__":
         tot_votes += v
         tot_seats += s
 
-    print("{} seats, {} voters, {} parties, {} valid ballots".format(tot_seats,\
-        tot_voters, len(data), tot_ballots)) 
+    print("{} seats, {} voters, {} parties, {} valid ballots, "\
+        "{} total votes".format(tot_seats, tot_voters, len(data), \
+        tot_ballots, tot_votes)) 
 
     TBTS = tot_ballots*tot_seats
+    iballots = tot_voters - tot_ballots
 
     level0_max_sample = 0
     level1_max_sample = 0
@@ -178,23 +186,24 @@ if __name__ == "__main__":
         v1,a1 = data[p1]
 
         if a1 > 1:
-            sample_size,m = supermajority_sample_size(hquota, a1-1, \
-                tot_votes, tot_ballots, erate, rlimit, t, g, REPS, seed, \
-                args.rfunc)
+            sample_size,m, th, am = supermajority_sample_size(hquota, a1-1, \
+                tot_votes, tot_ballots, tot_voters, erate, rlimit, t, g, \
+                REPS, seed, args.rfunc)
             
             level0_max_sample = max(sample_size, level0_max_sample)
             
-            print("Level 0,{},{},{},{}".format(p1, a1-1, m, sample_size))
+            print("Level 0,{},{},{},{},{}".format(p1, a1-1, th, m, sample_size))
 
         if a1 > 0:
-            v_div_q = math.floor(v1 / hquota) 
+            v_div_q = math.floor(tot_seats*(v1 / tot_votes)) 
             
             if v_div_q > 0:
-                sample_size,m = supermajority_sample_size(hquota, v_div_q, \
-                    tot_votes, tot_ballots, erate, rlimit, t, g, REPS, seed, \
-                    args.rfunc)
+                sample_size,m, th, am = supermajority_sample_size(hquota, \
+                    v_div_q, tot_votes, tot_ballots, tot_voters, erate, \
+                    rlimit, t, g, REPS, seed, args.rfunc)
             
-                print("Level 1,{},{},{},{}".format(p1, v_div_q, m,sample_size))
+                print("Level 1,{},{},{},{},{}".format(p1, v_div_q, th, \
+                    m, sample_size))
 
                 level1_max_sample = max(sample_size, level1_max_sample)
 
@@ -215,24 +224,28 @@ if __name__ == "__main__":
             d = (a1 - a2 - 1)/tot_seats
 
             # Compute mean of assorter for assertion and margin 'm'
-            amean = ((v1 - v2) - tot_votes*d + TBTS*(1+d))/(2*TBTS*(1+d))
+            # formerly before change to include invalid ballots
+            amean = (1.0/tot_voters) * (((v1 - v2) - tot_votes*d + \
+                TBTS*(1+d))/(2*tot_seats*(1+d)) + iballots/2.0)
 
             m = 2*(amean) - 1
        
+            upper = 1/(1+d)
+
             # Estimate sample size via simulation
             sample_size = np.inf
             if args.rfunc == "kaplan_kolmogorov":
                 prng = np.random.RandomState(seed) 
                 sample_size =  sample_size_kaplan_kolgoromov(m, prng, \
-                    tot_ballots, erate, rlimit, t=t, g=g, quantile=0.5,\
-                    reps=REPS)
+                    tot_ballots, erate, rlimit, t=t, g=g, upper_bound=upper,\
+                    quantile=0.5,reps=REPS)
             else:
                 # Use kaplan martingale
                 risk_fn = lambda x: TestNonnegMean.kaplan_martingale(x, \
                     N=tot_ballots)[0]
                 
                 sample_size =  TestNonnegMean.initial_sample_size(risk_fn, \
-                    tot_ballots, m, erate, alpha=rlimit, t=t, reps=REPS,\
+                    tot_ballots, m, erate, alpha=rlimit, t=t, reps=None,\
                     bias_up=True, quantile=0.5, seed=seed)
             
             level2_max_sample = max(sample_size, level2_max_sample)
