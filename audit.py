@@ -51,7 +51,7 @@ def sample_size_kaplan_kolgoromov(margin, prng, N, error_rate, rlimit, t=1/2, \
     g=0.1, upper_bound=1, quantile=0.5, reps=20):
 
     clean = 1.0/(2 - margin/upper_bound)
-    one_vote_over = 0.5/(2-margin/upper_bound)
+    one_vote_over = (1-0.5)/(2-margin/upper_bound) 
 
     samples = [0]*reps
 
@@ -100,8 +100,6 @@ def supermajority_sample_size(hquota, seats, tot_votes, tot_ballots, \
 
     m = 2*amean - 1
 
-    #m = min(m, 4)
-
     # Estimate sample size via simulation
     sample_size = np.inf
     if rfunc == "kaplan_kolmogorov":
@@ -113,8 +111,8 @@ def supermajority_sample_size(hquota, seats, tot_votes, tot_ballots, \
         risk_fn=lambda x: TestNonnegMean.kaplan_martingale(x,N=tot_ballots)[0]
                 
         sample_size =  TestNonnegMean.initial_sample_size(risk_fn, \
-            tot_ballots, m, erate, alpha=rlimit, t=t, reps=REPS,\
-            bias_up=True, quantile=0.5, seed=seed)
+            tot_ballots, m, erate, alpha=rlimit, t=t, upper_bound=share,\
+            reps=REPS, bias_up=True, quantile=0.5, seed=seed)
 
     return sample_size, m, threshold, amean
 
